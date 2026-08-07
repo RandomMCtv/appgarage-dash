@@ -65,6 +65,7 @@ public class GaugeView extends View {
         p.setTypeface(Typeface.MONOSPACE);
     }
 
+    public void setName(int t, String n) {}  // labels hardcoded; kept for MainActivity compatibility
     public void setValue(int t, float val) { if (t>=0&&t<N){ v[t]=val; have[t]=true; } }
     public void setStatus(String s) { status = s; }
     private float   g(int t) { return have[t] ? v[t] : 0f; }
