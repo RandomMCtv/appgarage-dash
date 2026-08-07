@@ -1,0 +1,54 @@
+name: Build AppGarage Dash EPK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python cryptography
+        run: pip install cryptography
+
+      - name: Download Android command-line tools
+        run: |
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip -d $HOME/android-sdk/cmdline-tools
+          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+
+      - name: Install Android build tools
+        run: |
+          export PATH=$PATH:$HOME/android-sdk/cmdline-tools/latest/bin
+          yes | sdkmanager --licenses
+          sdkmanager "build-tools;34.0.0" "platforms;android-34"
+
+      - name: Build EPK
+        run: |
+          export JAVA_HOME=$JAVA_HOME
+          export ANDROID_SDK=$HOME/android-sdk
+          bash build.sh
+
+      - name: Upload EPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: appgarage-dash-epk
+          path: build/dash.epk
+          retention-days: 30
