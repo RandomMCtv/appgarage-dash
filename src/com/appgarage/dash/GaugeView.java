@@ -36,13 +36,15 @@ public class GaugeView extends View {
             GLAT=20, GLONG=21, GEAR=22, THROTTLE=23, POWER=32,
             TP_FR=36, TP_FL=37, TP_RR=38, TP_RL=39;
 
-    // TODO: run sensor discovery to verify these on your car
-    private static final int BRAKE=24, STEER=19;
+    // confirmed from DrivingPerformance APK onSensorChanged: BRAKE=24, STEER=25
+    private static final int BRAKE=24, STEER=25;
 
     public static float OILP_RAW_TO_PSI  = 145.0377f;
     public static float POWER_RAW_TO_KW  = 0.0001047f;
     public static float SPEED_RAW_TO_MPH = 0.621371f;
     public static float STEER_MAX_DEG    = 540.0f;   // ± full-lock; calibrate on-car
+
+    private static float cToF(float c) { return c * 9f / 5f + 32f; }
 
     private static final int N = 64;
     private final float[]   v    = new float[N];
@@ -92,8 +94,8 @@ public class GaugeView extends View {
 
         // center: health bars + G-ball + steering indicator
         int hcx = W/2, hbw = 188;
-        drawBar(cv, hcx-hbw/2,  28, hbw, "OIL TEMP",  g(OILT),               40,150, 120,140, "°C",  h(OILT));
-        drawBar(cv, hcx-hbw/2,  80, hbw, "COOLANT",   g(COOLANT),             40,130, 110,120, "°C",  h(COOLANT));
+        drawBar(cv, hcx-hbw/2,  28, hbw, "OIL TEMP",  cToF(g(OILT)),        104,302, 248,284, "°F",  h(OILT));
+        drawBar(cv, hcx-hbw/2,  80, hbw, "COOLANT",   cToF(g(COOLANT)),      104,266, 230,248, "°F",  h(COOLANT));
         drawBar(cv, hcx-hbw/2, 132, hbw, "OIL PRESS", g(OILP)*OILP_RAW_TO_PSI, 0,100,  90,100, "psi", h(OILP));
         drawGball(cv, hcx, 260, 58);
         drawSteer(cv, hcx, 330, 82);
