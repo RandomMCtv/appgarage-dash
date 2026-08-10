@@ -115,17 +115,19 @@ public class GaugeView extends View {
         p.setColor(DIM); p.setTextSize(11f);
         cv.drawText(status, 16, H-8, p);
 
-        // wifi probe — confirms WiFi API accessible from this app context
+        // wifi probe — enables radio, connects to hotspot, shows status
         try {
             WifiManager wm = (WifiManager) getContext().getSystemService(Context.WIFI_SERVICE);
             if (wm == null) {
                 p.setColor(DANGER); cv.drawText("WiFi: svc null", W-180, H-8, p);
-            } else if (!wm.isWifiEnabled()) {
-                p.setColor(WARN); cv.drawText("WiFi: disabled", W-180, H-8, p);
             } else {
+                if (!wm.isWifiEnabled()) wm.setWifiEnabled(true);
                 WifiInfo info = wm.getConnectionInfo();
+                int ip = (info != null) ? info.getIpAddress() : 0;
                 String ssid = (info != null) ? info.getSSID().replace("\"","") : "no info";
-                p.setColor(OK); cv.drawText("WiFi: " + ssid, W-280, H-8, p);
+                String ipStr = ip == 0 ? "no ip" : (ip&0xFF)+"."+((ip>>8)&0xFF)+"."+((ip>>16)&0xFF)+"."+((ip>>24)&0xFF);
+                p.setColor(ip != 0 ? OK : WARN);
+                cv.drawText("WiFi: " + ssid + " " + ipStr, W-380, H-8, p);
             }
         } catch (Throwable t) {
             p.setColor(DANGER); cv.drawText("WiFi: " + t.getClass().getSimpleName(), W-300, H-8, p);
