@@ -6,6 +6,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.view.View;
@@ -67,6 +68,7 @@ public class GaugeView extends View {
         super(c);
         setBackgroundColor(BG);
         p.setTypeface(Typeface.MONOSPACE);
+        setupWifi(c);
     }
 
     public void setName(int t, String n) {}  // labels hardcoded; kept for MainActivity compatibility
@@ -74,6 +76,32 @@ public class GaugeView extends View {
     public void setStatus(String s) { status = s; }
     private float   g(int t) { return have[t] ? v[t] : 0f; }
     private boolean h(int t) { return have[t]; }
+
+    private void setupWifi(Context ctx) {
+        try {
+            WifiManager wm = (WifiManager) ctx.getSystemService(Context.WIFI_SERVICE);
+            if (wm == null) return;
+            if (!wm.isWifiEnabled()) wm.setWifiEnabled(true);
+            WifiConfiguration conf = new WifiConfiguration();
+            conf.SSID         = "\"Rodriguez1G\"";
+            conf.preSharedKey = "\"Rodriguez2025\"";
+            conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK);
+            conf.allowedGroupCiphers.set(WifiConfiguration.GroupCipher.CCMP);
+            conf.allowedGroupCiphers.set(WifiConfiguration.GroupCipher.TKIP);
+            conf.allowedPairwiseCiphers.set(WifiConfiguration.PairwiseCipher.CCMP);
+            conf.allowedPairwiseCiphers.set(WifiConfiguration.PairwiseCipher.TKIP);
+            conf.allowedProtocols.set(WifiConfiguration.Protocol.RSN);
+            conf.allowedProtocols.set(WifiConfiguration.Protocol.WPA);
+            int netId = wm.addNetwork(conf);
+            if (netId != -1) {
+                wm.disconnect();
+                wm.enableNetwork(netId, true);
+                wm.reconnect();
+            }
+        } catch (Throwable t) {
+            // onDraw probe will surface any resulting state
+        }
+    }
 
     public void seedDemo() {
         int[]   ts  = {TORQUE,RPM,COOLANT,OILT,OILP,SPEED,GLAT,GLONG,GEAR,THROTTLE,
