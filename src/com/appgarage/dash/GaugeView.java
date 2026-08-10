@@ -6,6 +6,8 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.view.View;
 
 /**
@@ -112,6 +114,22 @@ public class GaugeView extends View {
         // status footer
         p.setColor(DIM); p.setTextSize(11f);
         cv.drawText(status, 16, H-8, p);
+
+        // wifi probe — confirms WiFi API accessible from this app context
+        try {
+            WifiManager wm = (WifiManager) getContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm == null) {
+                p.setColor(DANGER); cv.drawText("WiFi: svc null", W-180, H-8, p);
+            } else if (!wm.isWifiEnabled()) {
+                p.setColor(WARN); cv.drawText("WiFi: disabled", W-180, H-8, p);
+            } else {
+                WifiInfo info = wm.getConnectionInfo();
+                String ssid = (info != null) ? info.getSSID().replace("\"","") : "no info";
+                p.setColor(OK); cv.drawText("WiFi: " + ssid, W-280, H-8, p);
+            }
+        } catch (Throwable t) {
+            p.setColor(DANGER); cv.drawText("WiFi: " + t.getClass().getSimpleName(), W-300, H-8, p);
+        }
     }
 
     private void drawRpm(Canvas cv, int cx, int cy, int r) {
