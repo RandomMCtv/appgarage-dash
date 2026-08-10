@@ -6,7 +6,6 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
-import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.view.View;
@@ -53,6 +52,7 @@ public class GaugeView extends View {
     private final float[]   v    = new float[N];
     private final boolean[] have = new boolean[N];
     private String status = "";
+    private String wifiSetupResult = "not started";
 
     private final Paint p    = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF oval = new RectF();
@@ -78,28 +78,78 @@ public class GaugeView extends View {
     private boolean h(int t) { return have[t]; }
 
     private void setupWifi(Context ctx) {
+        // WifiManager.addNetwork() returns -1 on this build because the
+        // wpa_supplicant socket is at /data/system/wpa_supplicant (Linux side)
+        // not the standard Android path. We use wpa_cli directly instead.
+
+        // Step 1: enable the radio via WifiManager (this part works fine)
         try {
             WifiManager wm = (WifiManager) ctx.getSystemService(Context.WIFI_SERVICE);
-            if (wm == null) return;
-            if (!wm.isWifiEnabled()) wm.setWifiEnabled(true);
-            WifiConfiguration conf = new WifiConfiguration();
-            conf.SSID         = "\"Rodriguez1G\"";
-            conf.preSharedKey = "\"Rodriguez2025\"";
-            conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK);
-            conf.allowedGroupCiphers.set(WifiConfiguration.GroupCipher.CCMP);
-            conf.allowedGroupCiphers.set(WifiConfiguration.GroupCipher.TKIP);
-            conf.allowedPairwiseCiphers.set(WifiConfiguration.PairwiseCipher.CCMP);
-            conf.allowedPairwiseCiphers.set(WifiConfiguration.PairwiseCipher.TKIP);
-            conf.allowedProtocols.set(WifiConfiguration.Protocol.RSN);
-            conf.allowedProtocols.set(WifiConfiguration.Protocol.WPA);
-            int netId = wm.addNetwork(conf);
-            if (netId != -1) {
-                wm.disconnect();
-                wm.enableNetwork(netId, true);
-                wm.reconnect();
+            if (wm != null && !wm.isWifiEnabled()) wm.setWifiEnabled(true);
+        } catch (Throwable t) { /* ignore, probe will show state */ }
+
+        // Step 2: configure network via wpa_cli in background thread
+        wifiSetupResult = "wpa_cli starting...";
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    Thread.sleep(3000); // wait for radio to initialise
+
+                    // find wpa_cli binary
+                    String bin = null;
+                    for (String path : new String[]{
+                            "/system/bin/wpa_cli",
+                            "/usr/bin/wpa_cli",
+                            "/sbin/wpa_cli"}) {
+                        if (new java.io.File(path).exists()) { bin = path; break; }
+                    }
+                    if (bin == null) { wifiSetupResult = "wpa_cli not found"; return; }
+
+                    // try both socket paths
+                    String sock = null;
+                    for (String sp : new String[]{
+                            "/data/system/wpa_supplicant",
+                            "/data/misc/wifi"}) {
+                        String r = wpaCmd(bin, "wifi", sp, "ping");
+                        if ("PONG".equals(r)) { sock = sp; break; }
+                    }
+                    if (sock == null) { wifiSetupResult = "wpa_cli no socket"; return; }
+
+                    // add network and configure
+                    String addOut = wpaCmd(bin, "wifi", sock, "add_network");
+                    int netId = -1;
+                    try { netId = Integer.parseInt(addOut.trim()); } catch (Exception e) {}
+                    if (netId < 0) { wifiSetupResult = "add_network=" + addOut; return; }
+
+                    String id = String.valueOf(netId);
+                    wpaCmd(bin, "wifi", sock, "set_network", id, "ssid",    "\"Rodriguez1G\"");
+                    wpaCmd(bin, "wifi", sock, "set_network", id, "psk",     "\"Rodriguez2025\"");
+                    wpaCmd(bin, "wifi", sock, "set_network", id, "key_mgmt","WPA-PSK");
+                    wpaCmd(bin, "wifi", sock, "enable_network",  id);
+                    wpaCmd(bin, "wifi", sock, "save_config");
+                    wpaCmd(bin, "wifi", sock, "reconnect");
+                    wifiSetupResult = "wpa_cli ok id=" + netId;
+                } catch (Throwable t) {
+                    wifiSetupResult = "ex:" + t.getClass().getSimpleName();
+                }
             }
+        }).start();
+    }
+
+    private String wpaCmd(String bin, String iface, String sock, String... args) {
+        try {
+            String[] cmd = new String[5 + args.length];
+            cmd[0] = bin;
+            cmd[1] = "-i"; cmd[2] = iface;
+            cmd[3] = "-p"; cmd[4] = sock;
+            for (int i = 0; i < args.length; i++) cmd[5+i] = args[i];
+            Process proc = Runtime.getRuntime().exec(cmd);
+            proc.waitFor();
+            byte[] buf = new byte[256];
+            int n = proc.getInputStream().read(buf);
+            return n > 0 ? new String(buf, 0, n).trim() : "";
         } catch (Throwable t) {
-            // onDraw probe will surface any resulting state
+            return "ERR:" + t.getClass().getSimpleName();
         }
     }
 
@@ -156,7 +206,7 @@ public class GaugeView extends View {
                 String ssid = (rawSsid != null) ? rawSsid.replace("\"","") : "scanning";
                 String ipStr = ip == 0 ? "no ip" : (ip&0xFF)+"."+((ip>>8)&0xFF)+"."+((ip>>16)&0xFF)+"."+((ip>>24)&0xFF);
                 p.setColor(ip != 0 ? OK : WARN);
-                cv.drawText("WiFi: " + ssid + " " + ipStr, W-380, H-8, p);
+                cv.drawText("WiFi:" + ssid + " " + ipStr + " [" + wifiSetupResult + "]", W-580, H-8, p);
             }
         } catch (Throwable t) {
             p.setColor(DANGER); cv.drawText("WiFi: " + t.getClass().getSimpleName(), W-300, H-8, p);
