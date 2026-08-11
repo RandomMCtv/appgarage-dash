@@ -78,30 +78,52 @@ public class GaugeView extends View {
     private boolean h(int t) { return have[t]; }
 
     private void setupWifi(Context ctx) {
-        // Don't send WCS broadcasts — they wake the dead modem path and crash.
-        // Instead quietly write the three flag files WCSPoller checks on its
-        // 30-second polling loop. On the next poll it will see the device as
-        // connected and allow network access without touching the modem.
-        wifiSetupResult = "writing flags...";
+        wifiSetupResult = "reading ivi db...";
         new Thread(new Runnable() {
             public void run() {
                 try {
                     Thread.sleep(2000);
-                    java.io.File tmp = new java.io.File("/data/system/tmp");
-                    tmp.mkdirs();
-                    String[] flags = {
-                        "/data/system/tmp/.network_access_setting.yes",
-                        "/data/system/tmp/.wcs_device_connected",
-                        "/data/system/tmp/.network_popup_displayed"
-                    };
-                    int written = 0;
-                    for (String flag : flags) {
+                    StringBuilder sb = new StringBuilder();
+                    for (String dbPath : new String[]{
+                            "/data/system/ivi_ota_config.db",
+                            "/data/system/ivi_app_config.db"}) {
+                        java.io.File f = new java.io.File(dbPath);
+                        if (!f.exists()) { sb.append(dbPath.replace("/data/system/","")).append("=missing "); continue; }
                         try {
-                            new java.io.FileOutputStream(flag).close();
-                            written++;
-                        } catch (Throwable t2) { /* permission denied, count what we got */ }
+                            android.database.sqlite.SQLiteDatabase db =
+                                android.database.sqlite.SQLiteDatabase.openDatabase(
+                                    dbPath, null,
+                                    android.database.sqlite.SQLiteDatabase.OPEN_READONLY);
+                            android.database.Cursor tables = db.rawQuery(
+                                "SELECT name FROM sqlite_master WHERE type='table'", null);
+                            sb.append(dbPath.replace("/data/system/","")).append("[");
+                            while (tables.moveToNext()) {
+                                String tbl = tables.getString(0);
+                                sb.append(tbl).append(":");
+                                try {
+                                    android.database.Cursor rows =
+                                        db.rawQuery("SELECT * FROM " + tbl + " LIMIT 3", null);
+                                    String[] cols = rows.getColumnNames();
+                                    while (rows.moveToNext()) {
+                                        sb.append("{");
+                                        for (String col : cols) {
+                                            sb.append(col).append("=")
+                                              .append(rows.getString(rows.getColumnIndex(col))).append(",");
+                                        }
+                                        sb.append("}");
+                                    }
+                                    rows.close();
+                                } catch (Throwable t2) { sb.append("!").append(t2.getClass().getSimpleName()); }
+                                sb.append("|");
+                            }
+                            tables.close();
+                            sb.append("] ");
+                            db.close();
+                        } catch (Throwable t2) {
+                            sb.append(dbPath.replace("/data/system/","")).append("=").append(t2.getClass().getSimpleName()).append(" ");
+                        }
                     }
-                    wifiSetupResult = "flags " + written + "/3 written";
+                    wifiSetupResult = sb.length() > 0 ? sb.toString() : "both dbs missing";
                 } catch (Throwable t) {
                     wifiSetupResult = "ex:" + t.getClass().getSimpleName();
                 }
