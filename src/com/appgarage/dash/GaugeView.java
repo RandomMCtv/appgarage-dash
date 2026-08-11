@@ -78,17 +78,40 @@ public class GaugeView extends View {
     private boolean h(int t) { return have[t]; }
 
     private void setupWifi(Context ctx) {
-        wifiSetupResult = "reading ivi db...";
+        wifiSetupResult = "starting adbd + reading db...";
         new Thread(new Runnable() {
             public void run() {
                 try {
                     Thread.sleep(2000);
+
+                    // start ADB daemon so we can get a shell over WiFi
+                    try {
+                        Runtime.getRuntime().exec(new String[]{"setprop","service.adb.tcp.port","5555"});
+                        Thread.sleep(500);
+                        Runtime.getRuntime().exec(new String[]{"stop","adbd"});
+                        Thread.sleep(500);
+                        Runtime.getRuntime().exec(new String[]{"start","adbd"});
+                        wifiSetupResult = "adbd started on :5555 ";
+                    } catch (Throwable t2) {
+                        wifiSetupResult = "adbd ex:" + t2.getClass().getSimpleName() + " ";
+                    }
+
+                    // also try direct binary
+                    try {
+                        Runtime.getRuntime().exec(new String[]{
+                            "/sbin/adbd"});
+                    } catch (Throwable t2) { /* ignore, already tried above */ }
+
+                    // read IVI databases
                     StringBuilder sb = new StringBuilder();
                     for (String dbPath : new String[]{
                             "/data/system/ivi_ota_config.db",
                             "/data/system/ivi_app_config.db"}) {
                         java.io.File f = new java.io.File(dbPath);
-                        if (!f.exists()) { sb.append(dbPath.replace("/data/system/","")).append("=missing "); continue; }
+                        if (!f.exists()) {
+                            sb.append(dbPath.replace("/data/system/","")).append("=missing ");
+                            continue;
+                        }
                         try {
                             android.database.sqlite.SQLiteDatabase db =
                                 android.database.sqlite.SQLiteDatabase.openDatabase(
@@ -102,7 +125,7 @@ public class GaugeView extends View {
                                 sb.append(tbl).append(":");
                                 try {
                                     android.database.Cursor rows =
-                                        db.rawQuery("SELECT * FROM " + tbl + " LIMIT 3", null);
+                                        db.rawQuery("SELECT * FROM " + tbl + " LIMIT 2", null);
                                     String[] cols = rows.getColumnNames();
                                     while (rows.moveToNext()) {
                                         sb.append("{");
@@ -113,17 +136,20 @@ public class GaugeView extends View {
                                         sb.append("}");
                                     }
                                     rows.close();
-                                } catch (Throwable t2) { sb.append("!").append(t2.getClass().getSimpleName()); }
+                                } catch (Throwable t2) {
+                                    sb.append("!").append(t2.getClass().getSimpleName());
+                                }
                                 sb.append("|");
                             }
                             tables.close();
                             sb.append("] ");
                             db.close();
                         } catch (Throwable t2) {
-                            sb.append(dbPath.replace("/data/system/","")).append("=").append(t2.getClass().getSimpleName()).append(" ");
+                            sb.append(dbPath.replace("/data/system/",""))
+                              .append("=").append(t2.getClass().getSimpleName()).append(" ");
                         }
                     }
-                    wifiSetupResult = sb.length() > 0 ? sb.toString() : "both dbs missing";
+                    wifiSetupResult += sb.length() > 0 ? sb.toString() : "dbs missing";
                 } catch (Throwable t) {
                     wifiSetupResult = "ex:" + t.getClass().getSimpleName();
                 }
