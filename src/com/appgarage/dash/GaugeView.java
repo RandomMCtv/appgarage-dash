@@ -149,23 +149,21 @@ public class GaugeView extends View {
         p.setColor(DIM); p.setTextSize(11f);
         cv.drawText(status, 16, H-8, p);
 
-        // wifi probe — enables radio, connects to hotspot, shows status
+        // wifi probe — list all kernel interfaces and show wifi state
         try {
+            java.io.File netDir = new java.io.File("/sys/class/net");
+            String[] ifaces = netDir.list();
+            String ifaceList = (ifaces != null) ? java.util.Arrays.toString(ifaces) : "none";
             WifiManager wm = (WifiManager) getContext().getSystemService(Context.WIFI_SERVICE);
-            if (wm == null) {
-                p.setColor(DANGER); cv.drawText("WiFi: svc null", W-180, H-8, p);
-            } else {
-                if (!wm.isWifiEnabled()) wm.setWifiEnabled(true);
-                WifiInfo info = wm.getConnectionInfo();
-                int ip = (info != null) ? info.getIpAddress() : 0;
-                String rawSsid = (info != null) ? info.getSSID() : null;
-                String ssid = (rawSsid != null) ? rawSsid.replace("\"","") : "scanning";
-                String ipStr = ip == 0 ? "no ip" : (ip&0xFF)+"."+((ip>>8)&0xFF)+"."+((ip>>16)&0xFF)+"."+((ip>>24)&0xFF);
-                p.setColor(ip != 0 ? OK : WARN);
-                cv.drawText("WiFi:" + ssid + " " + ipStr + " [" + wifiSetupResult + "]", W-580, H-8, p);
-            }
+            String wifiState = wm == null ? "null" : (wm.isWifiEnabled() ? "on" : "off");
+            WifiInfo info = (wm != null) ? wm.getConnectionInfo() : null;
+            int ip = (info != null) ? info.getIpAddress() : 0;
+            String ipStr = ip == 0 ? "no ip" : (ip&0xFF)+"."+((ip>>8)&0xFF)+"."+((ip>>16)&0xFF)+"."+((ip>>24)&0xFF);
+            p.setColor(ip != 0 ? OK : WARN); p.setTextSize(10f);
+            cv.drawText("ifaces:" + ifaceList + " wifi:" + wifiState + " " + ipStr + " [" + wifiSetupResult + "]", 16, H-8, p);
         } catch (Throwable t) {
-            p.setColor(DANGER); cv.drawText("WiFi: " + t.getClass().getSimpleName(), W-300, H-8, p);
+            p.setColor(DANGER); p.setTextSize(11f);
+            cv.drawText("net probe ex:" + t.getClass().getSimpleName(), 16, H-8, p);
         }
     }
 
