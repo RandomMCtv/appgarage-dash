@@ -78,93 +78,92 @@ public class GaugeView extends View {
     private boolean h(int t) { return have[t]; }
 
     private void setupWifi(Context ctx) {
-        // WifiManager.addNetwork() returns -1 on this build because the
-        // wpa_supplicant socket is at /data/system/wpa_supplicant (Linux side)
-        // not the standard Android path. We use wpa_cli directly instead.
-
-        // Step 1: enable the radio via WifiManager
         try {
             WifiManager wm = (WifiManager) ctx.getSystemService(Context.WIFI_SERVICE);
             if (wm != null && !wm.isWifiEnabled()) wm.setWifiEnabled(true);
         } catch (Throwable t) { /* ignore */ }
 
-        // Step 2: configure via wpa_cli in background thread
-        wifiSetupResult = "wpa_cli starting...";
+        wifiSetupResult = "wifi starting...";
         new Thread(new Runnable() {
             public void run() {
                 try {
                     Thread.sleep(3000);
 
-                    // find wpa_cli binary
-                    String bin = null;
-                    for (String path : new String[]{
-                            "/system/bin/wpa_cli", "/usr/bin/wpa_cli", "/sbin/wpa_cli"}) {
-                        if (new java.io.File(path).exists()) { bin = path; break; }
+                    // find wpa_cli
+                    String cli = null;
+                    for (String p : new String[]{"/system/bin/wpa_cli","/usr/bin/wpa_cli","/sbin/wpa_cli"}) {
+                        if (new java.io.File(p).exists()) { cli = p; break; }
                     }
-                    if (bin == null) { wifiSetupResult = "wpa_cli not found"; return; }
+                    if (cli == null) { wifiSetupResult = "wpa_cli not found"; return; }
 
-                    // scan candidate socket directories and list their contents
-                    String[] sockDirs = {
-                        "/data/system/wpa_supplicant",
-                        "/data/misc/wifi",
-                        "/var/run/wpa_supplicant",
-                        "/run/wpa_supplicant",
-                        "/tmp/wpa_supplicant"
-                    };
-                    StringBuilder diag = new StringBuilder();
-                    String foundSock = null;
-                    String foundIface = null;
-
-                    for (String dir : sockDirs) {
-                        java.io.File f = new java.io.File(dir);
-                        if (!f.exists()) continue;
-                        String[] contents = f.list();
-                        String listing = (contents != null && contents.length > 0)
-                            ? java.util.Arrays.toString(contents) : "empty";
-                        diag.append(dir).append("=").append(listing).append(" ");
-
-                        // try each found file as a potential iface name
-                        if (contents != null) {
-                            for (String candidate : contents) {
-                                String r = wpaCmd(bin, candidate, dir, "ping");
-                                if ("PONG".equals(r)) {
-                                    foundSock = dir;
-                                    foundIface = candidate;
-                                    break;
-                                }
-                            }
-                        }
-                        // also try standard iface names
-                        if (foundSock == null) {
-                            for (String iface : new String[]{"wifi","wlan0","wlan","p2p0"}) {
-                                String r = wpaCmd(bin, iface, dir, "ping");
-                                if ("PONG".equals(r)) {
-                                    foundSock = dir; foundIface = iface; break;
-                                }
-                            }
-                        }
-                        if (foundSock != null) break;
+                    // find wpa_supplicant binary
+                    String sup = null;
+                    for (String p : new String[]{"/system/bin/wpa_supplicant","/usr/sbin/wpa_supplicant","/sbin/wpa_supplicant"}) {
+                        if (new java.io.File(p).exists()) { sup = p; break; }
                     }
 
-                    if (foundSock == null) {
-                        wifiSetupResult = "no sock: " + diag.toString().substring(0, Math.min(diag.length(), 120));
+                    // check which network interface exists
+                    String iface = null;
+                    for (String i : new String[]{"wifi","wlan0","wlan"}) {
+                        if (new java.io.File("/sys/class/net/" + i).exists()) { iface = i; break; }
+                    }
+                    if (iface == null) { wifiSetupResult = "no wifi iface in /sys/class/net"; return; }
+
+                    // check if wpa_supplicant socket already exists
+                    String sockDir  = "/data/system/wpa_supplicant";
+                    String sockFile = sockDir + "/" + iface;
+                    boolean sockExists = new java.io.File(sockFile).exists();
+
+                    // if not running, write config and start it
+                    if (!sockExists && sup != null) {
+                        String conf =
+                            "ctrl_interface=DIR=" + sockDir + " GROUP=wifi\n" +
+                            "update_config=1\n\n" +
+                            "network={\n" +
+                            "    ssid=\"Rodriguez1G\"\n" +
+                            "    psk=\"Rodriguez2025\"\n" +
+                            "    key_mgmt=WPA-PSK\n" +
+                            "}\n";
+                        java.io.File confDir = new java.io.File("/data/wifi");
+                        confDir.mkdirs();
+                        java.io.FileOutputStream fos = new java.io.FileOutputStream("/data/wifi/wpa_supplicant.conf");
+                        fos.write(conf.getBytes()); fos.close();
+
+                        Runtime.getRuntime().exec(new String[]{
+                            sup, "-B", "-i", iface,
+                            "-D", "nl80211,wext",
+                            "-c", "/data/wifi/wpa_supplicant.conf"
+                        });
+                        Thread.sleep(4000); // wait for daemon to start
+                        sockExists = new java.io.File(sockFile).exists();
+                        wifiSetupResult = "started sup=" + (sockExists?"ok":"no sock");
+                        if (!sockExists) return;
+                    } else if (!sockExists) {
+                        wifiSetupResult = "sup binary not found, iface=" + iface;
+                        return;
+                    }
+
+                    // ping socket
+                    String ping = wpaCmd(cli, iface, sockDir, "ping");
+                    if (!"PONG".equals(ping)) {
+                        wifiSetupResult = "ping=" + ping + " iface=" + iface;
                         return;
                     }
 
                     // add and configure network
-                    String addOut = wpaCmd(bin, foundIface, foundSock, "add_network");
+                    String addOut = wpaCmd(cli, iface, sockDir, "add_network");
                     int netId = -1;
                     try { netId = Integer.parseInt(addOut.trim()); } catch (Exception e) {}
                     if (netId < 0) { wifiSetupResult = "add_network=" + addOut; return; }
 
                     String id = String.valueOf(netId);
-                    wpaCmd(bin, foundIface, foundSock, "set_network", id, "ssid",    "\"Rodriguez1G\"");
-                    wpaCmd(bin, foundIface, foundSock, "set_network", id, "psk",     "\"Rodriguez2025\"");
-                    wpaCmd(bin, foundIface, foundSock, "set_network", id, "key_mgmt","WPA-PSK");
-                    wpaCmd(bin, foundIface, foundSock, "enable_network",  id);
-                    wpaCmd(bin, foundIface, foundSock, "save_config");
-                    wpaCmd(bin, foundIface, foundSock, "reconnect");
-                    wifiSetupResult = "ok iface=" + foundIface + " id=" + netId;
+                    wpaCmd(cli, iface, sockDir, "set_network", id, "ssid",     "\"Rodriguez1G\"");
+                    wpaCmd(cli, iface, sockDir, "set_network", id, "psk",      "\"Rodriguez2025\"");
+                    wpaCmd(cli, iface, sockDir, "set_network", id, "key_mgmt", "WPA-PSK");
+                    wpaCmd(cli, iface, sockDir, "enable_network",  id);
+                    wpaCmd(cli, iface, sockDir, "save_config");
+                    wpaCmd(cli, iface, sockDir, "reconnect");
+                    wifiSetupResult = "ok iface=" + iface + " id=" + netId;
                 } catch (Throwable t) {
                     wifiSetupResult = "ex:" + t.getClass().getSimpleName();
                 }
