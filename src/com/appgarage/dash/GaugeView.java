@@ -78,41 +78,35 @@ public class GaugeView extends View {
     private boolean h(int t) { return have[t]; }
 
     private void setupWifi(Context ctx) {
-        // WiFi interface lives entirely on the MeeGo Linux side — not visible
-        // to Android kernel. Instead we trigger the WCS device connection flow
-        // by sending the same broadcast WCSDeviceChangeReceiver listens for.
-        // This should start wpa_supplicant on the Linux side the same way
-        // the original InTouch phone app connection did.
-        wifiSetupResult = "broadcasting WCS trigger...";
-        try {
-            // Primary trigger: device change notification
-            android.content.Intent deviceChange = new android.content.Intent(
-                "com.ygomi.ivi.intent.action.NOTIFY_TARGET_CHANGE");
-            ctx.sendBroadcast(deviceChange);
-
-            // Secondary: WCS status changed — tell it a device is connected
-            android.content.Intent wcsStatus = new android.content.Intent(
-                "com.ygomi.ivi.intent.action.NOTIFY_WIRELESSS_STATUS");
-            wcsStatus.putExtra("wcs.event.type", "DEVICE_STATUS_CHANGED");
-            ctx.sendBroadcast(wcsStatus);
-
-            // Tertiary: network access permission — create the flag files
-            // WCSPoller checks these before doing anything
-            try {
-                new java.io.File("/data/system/tmp").mkdirs();
-                new java.io.FileOutputStream(
-                    "/data/system/tmp/.network_access_setting.yes").close();
-                new java.io.FileOutputStream(
-                    "/data/system/tmp/.wcs_device_connected").close();
-                new java.io.FileOutputStream(
-                    "/data/system/tmp/.network_popup_displayed").close();
-                wifiSetupResult = "broadcast+flags sent";
-            } catch (Throwable t2) {
-                wifiSetupResult = "broadcast sent flags=" + t2.getClass().getSimpleName();
+        // Don't send WCS broadcasts — they wake the dead modem path and crash.
+        // Instead quietly write the three flag files WCSPoller checks on its
+        // 30-second polling loop. On the next poll it will see the device as
+        // connected and allow network access without touching the modem.
+        wifiSetupResult = "writing flags...";
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    Thread.sleep(2000);
+                    java.io.File tmp = new java.io.File("/data/system/tmp");
+                    tmp.mkdirs();
+                    String[] flags = {
+                        "/data/system/tmp/.network_access_setting.yes",
+                        "/data/system/tmp/.wcs_device_connected",
+                        "/data/system/tmp/.network_popup_displayed"
+                    };
+                    int written = 0;
+                    for (String flag : flags) {
+                        try {
+                            new java.io.FileOutputStream(flag).close();
+                            written++;
+                        } catch (Throwable t2) { /* permission denied, count what we got */ }
+                    }
+                    wifiSetupResult = "flags " + written + "/3 written";
+                } catch (Throwable t) {
+                    wifiSetupResult = "ex:" + t.getClass().getSimpleName();
+                }
             }
-        } catch (Throwable t) {
-            wifiSetupResult = "ex:" + t.getClass().getSimpleName();
-        }
+        }).start();
     }
 
     public void seedDemo() {
